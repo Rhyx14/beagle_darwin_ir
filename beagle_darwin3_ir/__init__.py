@@ -1,6 +1,3 @@
-# monkey patch
-from . import monkey_patch
-
 from .label import Label
 from .RREG import RREG
 from .pseudo_inst import jc,jmp,jnc,set_value,expr
@@ -19,5 +16,13 @@ __all__=[
 
 from .misc import bind32
 __all__.extend([
-    'bind32'
+    'bind32',
+])
+
+# monkey patch
+from .monkey_patch import dump_input_neuron,dump_pop,dump_output_neuron
+__all__.extend([
+    'dump_input_neuron',
+    'dump_pop',
+    'dump_output_neuron',
 ])
