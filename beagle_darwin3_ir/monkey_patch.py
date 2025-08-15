@@ -83,7 +83,7 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
             if not os.path.exists(desc_path):
                 os.makedirs(desc_path)
             desc_file_path = os.path.join(desc_path, f"{x}-{y}-desc.md")
-            with open(desc_file_path, "w") as f:
+            with open(desc_file_path, "w",encoding='utf-8') as f:
                 f.write("# Axon:\n")
                 axon_desc, axon_out_desc = pop.axon_description()
                 f.write(axon_desc + "\n\n")

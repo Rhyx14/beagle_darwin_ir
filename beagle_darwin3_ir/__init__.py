@@ -1,6 +1,6 @@
 from .label import Label
 from .RREG import RREG
-from .pseudo_inst import jc,jmp,jnc,set_value,expr
+from .pseudo_inst import jc,jmp,jnc,expr
 from .if_else import If
 from .preprocess import preprocess
 from .LSLS_params import LSLS_Param
@@ -8,7 +8,7 @@ from .LSLS_params import LSLS_Param
 __all__=[
     'Label',
     'RREG',
-    'jc','jmp','jnc','set_value','expr',
+    'jc','jmp','jnc','expr',
     'If',
     'preprocess',
     'LSLS_Param'

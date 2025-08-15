@@ -13,6 +13,7 @@ class If(IPseudoInstruction):
 
     def __init__(self,op:str,inline_insts:list=[],Else=[]) -> None:
         _ls=op.split(' ')
+        _ls=[_s for _s in _ls if _s!='']
         self.rs=_ls[0]
         self.op=_ls[1]
         self.rt=_ls[2]
@@ -24,20 +25,45 @@ class If(IPseudoInstruction):
     
     def compile(self) -> list:
         rslt=[]
-        if self.op=='==' and self.rt=='0':
-            rslt.append(CMP(RREG.R_NAME_MAP[self.rs],RREG.R_NAME_MAP[self.rs],CMP.Func.EQ_0))
-        elif self.op=='>=' and self.rt=='0':
-            rslt.append(CMP(RREG.R_NAME_MAP[self.rs],RREG.R_NAME_MAP[self.rs],CMP.Func.GE_0))
-        elif self.op=='==':
-            rslt.append(CMP(RREG.R_NAME_MAP[self.rs],RREG.R_NAME_MAP[self.rt],CMP.Func.EQ))
-        elif self.op=='>=':
-            rslt.append(CMP(RREG.R_NAME_MAP[self.rs],RREG.R_NAME_MAP[self.rt],CMP.Func.GE))
-        else:
-            raise ValueError(f'erroneous operator {self.op}')
+        inverse_flag=False # whether using jc or jnc after cmp
+        match self.op:
+            case '==':
+                if self.rt == '0':
+                    rslt.append(CMP(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rs],CMP.Func.EQ_0))
+                else:
+                    rslt.append(CMP(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],CMP.Func.EQ))
+            case '>=':
+                if self.rt == '0':
+                    rslt.append(CMP(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rs],CMP.Func.GE_0))
+                else:
+                    rslt.append(CMP(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],CMP.Func.GE))
+            case '<': # 'rs < rt' equals to '!(rs >= rt)'
+                if self.rt == '0': 
+                    rslt.append(CMP(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rs],CMP.Func.GE_0))
+                else:
+                    rslt.append(CMP(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],CMP.Func.GE))
+                inverse_flag=True
+            case '>': # 'rs > rt' equals to '!(rt >= rs)'
+                if self.rt == '0': raise ValueError(f"target reg can not be 0 with '{self.op}'")
+                if self.rs == '0':
+                    rslt.append(CMP(RREG.NAME_MAP[self.rt],RREG.NAME_MAP[self.rt],CMP.Func.GE_0))
+                else:
+                    rslt.append(CMP(RREG.NAME_MAP[self.rt],RREG.NAME_MAP[self.rs],CMP.Func.GE))
+                inverse_flag=True
+            case '<=':
+                if self.rt == '0': raise ValueError(f"target reg can not be 0 with '{self.op}'")
+                if self.rs == '0':
+                    rslt.append(CMP(RREG.NAME_MAP[self.rt],RREG.NAME_MAP[self.rt],CMP.Func.GE_0))
+                else:
+                    rslt.append(CMP(RREG.NAME_MAP[self.rt],RREG.NAME_MAP[self.rs],CMP.Func.GE))
+            case _:
+                raise ValueError(f'erroneous operator {self.op}')
 
-        rslt.append(jnc(label_if:=If.get_label_id()))
+        if inverse_flag:
+            rslt.append(jc(label_if:=If.get_label_id()))
+        else:
+            rslt.append(jnc(label_if:=If.get_label_id()))
         rslt.extend(compile_instructions(self.inner_insts))
-        # rslt[-1]=Label(label_if,rslt[-1],1) # adding label
 
         if len(self.else_insts)!=0:
             rslt.append(jmp(label_else:=If.get_label_id())) # skip the else-block after if 

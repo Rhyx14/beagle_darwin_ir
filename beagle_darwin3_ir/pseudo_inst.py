@@ -1,4 +1,4 @@
-from darwin3_deployment.ir import JC,SUB,ADDI,MOV,ADD
+from darwin3_deployment.ir import *
 from .label import LabledInstructionBase
 from .RREG import RREG
 class IPseudoInstruction():
@@ -29,20 +29,6 @@ class jmp(LabledInstructionBase,IPseudoInstruction):
         if self.addr is not None: return [JC(0,0,self.addr)]
         else: return []
 
-class set_value(IPseudoInstruction):
-    '''
-    Assign value for a given register.
-    '''
-    def __init__(self,reg,imme) -> None:
-        super().__init__()
-        self.reg=reg
-        self.imme=imme
-    def compile(self) -> list:
-        return [
-            SUB(self.reg,self.reg),
-            ADDI(self.reg,self.imme)
-        ]
-
 class expr(IPseudoInstruction):
     def __init__(self,expr):
         super().__init__()
@@ -53,23 +39,34 @@ class expr(IPseudoInstruction):
         self.rt=_ls[2]
     
     def compile(self):
-        if self.rs not in RREG.R_NAME_MAP:
+        if self.rs not in RREG.NAME_MAP:
             raise ValueError(f'Left value should be a register, got "{self.rs}" instead.')
-        if self.op=='=':
-            if self.rt in RREG.R_NAME_MAP:
-                return [MOV(RREG.R_NAME_MAP[self.rs],RREG.R_NAME_MAP[self.rt])]
-            else:
-                return [SUB(RREG.R_NAME_MAP[self.rs],RREG.R_NAME_MAP[self.rs]),
-                        ADDI(RREG.R_NAME_MAP[self.rs],int(self.rt))]
-        elif self.op=='+=':
-            if self.rt in RREG.R_NAME_MAP:
-                return [ADD(RREG.R_NAME_MAP[self.rs],RREG.R_NAME_MAP[self.rt],0)]
-            else:
-                return [ADDI(RREG.R_NAME_MAP[self.rs],int(self.rt))]
-        elif self.op=='-=':
-            if self.rt in RREG.R_NAME_MAP:
-                return [SUB(RREG.R_NAME_MAP[self.rs],RREG.R_NAME_MAP[self.rt],0)]
-            else:
-                return [ADDI(RREG.R_NAME_MAP[self.rs],-int(self.rt))]
-        else:
-            raise ValueError(f'Undefined operator "{self.op}"')
+        match self.op:
+            case '=':
+                if self.rt in RREG.NAME_MAP:
+                    return [MOV(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt])]
+                else:
+                    if (imme:=int(self.rt)) ==0:
+                        return [SUB(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rs])]
+                    else:
+                        return [SUB(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rs]),
+                                ADDI(RREG.NAME_MAP[self.rs],imme)]
+            case '+=':
+                if self.rt in RREG.NAME_MAP:
+                    return [ADD(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],0)]
+                else:
+                    return [ADDI(RREG.NAME_MAP[self.rs],int(self.rt))]
+            case '-=':
+                if self.rt in RREG.NAME_MAP:
+                    return [SUB(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],0)]
+                else:
+                    return [ADDI(RREG.NAME_MAP[self.rs],-int(self.rt))]
+            case '*=':
+                return [MUL(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],MUL.QF.GLOBAL,0)]
+
+            case '<<':
+                return [SFTI(RREG.NAME_MAP[self.rs],SFTI.SF.LEFT,1,int(self.rt))]
+            case '>>':
+                return [SFTI(RREG.NAME_MAP[self.rs],SFTI.SF.RIGHT,1,int(self.rt))]
+            case _:
+                raise ValueError(f'Undefined operator "{self.op}"') 
