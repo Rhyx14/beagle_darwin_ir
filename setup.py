@@ -20,13 +20,13 @@ def list_files(top_directory:Path,current_directory:Path) -> list:
 setup(
       name='beagle_darwin3_ir', # 包名称
       packages=find_packages(exclude=['__pycache__']), # 需要处理的包目录
-      version='0.1.250704', # 版本
+      version='0.1.250910', # 版本
       classifiers=[
           'Development Status :: 3 - Alpha',
           'Programming Language :: Python', 'Intended Audience :: Developers',
           'Programming Language :: Python :: 3.12',
       ],
-      install_requires=['darwin3_deployment==0.6.3','numpy'],
+      install_requires=['darwin3_deployment==0.6.3','numpy','loguru'],
       # package_data={'': ['*.json']},
       author='rhyx', # 作者
       author_email='xu_hn@outlook.com',

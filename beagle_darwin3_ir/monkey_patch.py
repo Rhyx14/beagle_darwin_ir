@@ -53,9 +53,7 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
     vt = _validate_array_size(vt, "Vt")
     learning_param = _validate_array_size(learning_param, "Learning parameter")
 
-    inf_start = 0
-
-    id_start = 0  # 输出json文件: id->coord+id
+    id_start = 0  # 输出json文件: id->coord+id, 子神经元索引相对于整体的偏移量
     pops_mapping = {}
 
     error_list=[]
@@ -75,7 +73,6 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
 
         for i in range(pop.size):
             pops_mapping[id_start+i] = (x, y, i)
-        id_start += pop.size
 
         # ========================= 描述文件 =========================
         if need_description:
@@ -93,6 +90,13 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
                 f.write(dendrite_desc + "\n\n")
                 f.write(neu_id_desc + "\n\n")
                 f.write(weight_desc + "\n\n")
+        
+        # ========================= 轴突存储区 =========================
+        with open(f"{x}-{y}-ax.txt" , "w") as f:
+            axon_bin = pop.axon_serialize()
+            axon_memory_usage = len(axon_bin) / pop.axon_memory_size * 100
+            for axon_id, bin in sorted(axon_bin.items()):
+                f.write(f"{bin:07x}\n")
 
         # ========================= 树突存储区 =========================
         with open(f"{x}-{y}-de.txt", "w") as f:
@@ -113,24 +117,17 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
             for bin in dendrite_bin:
                 f.write(f"{bin:012x}\n")
 
-        # ========================= 轴突存储区 =========================
-        with open(f"{x}-{y}-ax.txt" , "w") as f:
-            axon_bin = pop.axon_serialize()
-            axon_memory_usage = len(axon_bin) / pop.axon_memory_size * 100
-            for axon_id, bin in sorted(axon_bin.items()):
-                f.write(f"{bin:07x}\n")
-
         # ========================= 状态/参数 =========================
         if inf_state is not None:
             with open(f"{x}-{y}-is.txt", "w") as f:
                 num_neurons = pop.size
-                for i in range(num_neurons):
-                    f.write(f"{int(inf_state[inf_start + num_neurons - 1 - i]):012x}\n")
+                for i in range(num_neurons): # 逆序写入
+                    f.write(f"{int(inf_state[id_start + num_neurons - 1 - i]):012x}\n")
         if inf_param is not None:
             with open(f"{x}-{y}-ip.txt", "w") as f:
                 num_neurons = pop.size
-                for i in range(num_neurons):
-                    f.write(f"{int(inf_param[inf_start + num_neurons - 1 - i]):012x}\n")
+                for i in range(num_neurons): # 逆序写入
+                    f.write(f"{int(inf_param[id_start + num_neurons - 1 - i]):012x}\n")
         if learning_param is not None:
             with open(f"{x}-{y}-lp.txt", "w") as f:
                 num_neurons = pop.size
@@ -141,7 +138,6 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
                 num_neurons = pop.size
                 for i in range(num_neurons):
                     f.write(f"{int(vt[i]):04x}\n")
-        inf_start += pop.size
 
         # ========================= 寄存器/配置 =========================
         with open(f"{x}-{y}-config.dwnc", "w") as f:
@@ -152,25 +148,39 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
                 f.write(f"0 write {x} {y} 0x{i+0x800:04x} 0x{regs[i]:08x}\n")
             for i in range(len(inst)):
                 f.write(f"0 write {x} {y} 0x{i+0x1000:04x} 0x{inst[i]:08x}\n")
+            
             f.write(f"0 write_ram {x} {y} 0x08000 {x}-{y}-ax.txt\n")
             f.write(f"0 write_ram {x} {y} 0x10000 {x}-{y}-de.txt\n")
+            
             if inf_state is not None:
-                f.write(f"0 write_ram {x} {y} 0x1{pop.inf_state_start_addr-pop.size:04x} {x}-{y}-is.txt\n")
+                if (_mem:=pop.inf_state_start_addr-pop.size) < len(dendrite_bin):
+                    logger.error(f'Core{pop.coord}: IS area covers the dendrite memory!')
+                    error_list.append(((pop.coord,data_size,pop.dendrite_memory_size,len(axon_bin),pop.axon_memory_size)))
+                f.write(f"0 write_ram {x} {y} 0x1{_mem:04x} {x}-{y}-is.txt\n")
+
             if inf_param is not None:
-                f.write(f"0 write_ram {x} {y} 0x1{pop.inf_param_start_addr-pop.size:04x} {x}-{y}-ip.txt\n")
+                if (_mem:=pop.inf_param_start_addr-pop.size) < len(dendrite_bin):
+                    logger.error(f'Core{pop.coord}: IP area covers the dendrite memory!')
+                    error_list.append(((pop.coord,data_size,pop.dendrite_memory_size,len(axon_bin),pop.axon_memory_size)))
+                f.write(f"0 write_ram {x} {y} 0x1{_mem:04x} {x}-{y}-ip.txt\n")
+
             if learning_param is not None:
                 f.write(f"0 write_ram {x} {y} 0x1{pop.learning_param_start_addr-pop.size:04x} {x}-{y}-lp.txt\n")
+
             if vt is not None:
                 f.write(f"0 write_ram {x} {y} 0x02000 {x}-{y}-vt.txt\n")
         
+        # 接着下一个神经元的偏移量
+        id_start += pop.size
+
         # ========================= 打印树突/轴突存储区使用情况 =========================
         is_error = (data_size > pop.dendrite_memory_size) or (len(axon_bin) > pop.axon_memory_size)
-        error_list.append((pop.coord,data_size,pop.dendrite_memory_size,len(axon_bin),pop.axon_memory_size))
         core_usage = (f"Core{pop.coord}: "
                       f"Dendrite(size/depth) {data_size}/{pop.dendrite_memory_size}|{dendrite_memory_usage:.2f}%"
                       f" --- Axon(size/depth) {len(axon_bin)}/{pop.axon_memory_size}|{axon_memory_usage:.2f}%")
         if is_error:
             logger.error(core_usage)
+            error_list.append((pop.coord,data_size,pop.dendrite_memory_size,len(axon_bin),pop.axon_memory_size))
         else:
             if need_show_usage or is_error:
                 logger.info(core_usage)
