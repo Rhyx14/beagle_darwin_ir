@@ -53,12 +53,12 @@ class expr(IPseudoInstruction):
                                 ADDI(RREG.NAME_MAP[self.rs],imme)]
             case '+=':
                 if self.rt in RREG.NAME_MAP:
-                    return [ADD(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],0)]
+                    return [ADD(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],1)]
                 else:
                     return [ADDI(RREG.NAME_MAP[self.rs],int(self.rt))]
             case '-=':
                 if self.rt in RREG.NAME_MAP:
-                    return [SUB(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],0)]
+                    return [SUB(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],1)]
                 else:
                     return [ADDI(RREG.NAME_MAP[self.rs],-int(self.rt))]
             case '*=':

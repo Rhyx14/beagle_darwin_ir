@@ -20,7 +20,7 @@ def list_files(top_directory:Path,current_directory:Path) -> list:
 setup(
       name='beagle_darwin3_ir', # 包名称
       packages=find_packages(exclude=['__pycache__']), # 需要处理的包目录
-      version='0.1.250910', # 版本
+      version='0.1.250918', # 版本
       classifiers=[
           'Development Status :: 3 - Alpha',
           'Programming Language :: Python', 'Intended Audience :: Developers',
