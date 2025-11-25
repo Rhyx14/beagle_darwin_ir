@@ -1,8 +1,9 @@
 from .pseudo_inst import IPseudoInstruction
 from darwin3_deployment.ir import DInst,CMP
-from .pseudo_inst import jc,jmp,jnc,expr
+from .pseudo_inst import jc,jmp,jnc,str_expr
 from .label import Label
 from .RREG import RREG
+from .preprocess import compile_instructions
 class If(IPseudoInstruction):
     LABEL_ID=0
     @staticmethod
@@ -27,6 +28,13 @@ class If(IPseudoInstruction):
         rslt=[]
         inverse_flag=False # whether using jc or jnc after cmp
         match self.op:
+            case '!=': # 'rs != rt' equals to '!(rs == rt)'
+                if self.rs == '0': raise ValueError(f"target reg can not be 0 with '{self.op}'")
+                if self.rt == '0':
+                    rslt.append(CMP(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rs],CMP.Func.EQ_0))
+                else:
+                    rslt.append(CMP(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rt],CMP.Func.EQ))
+                inverse_flag=True
             case '==':
                 if self.rt == '0':
                     rslt.append(CMP(RREG.NAME_MAP[self.rs],RREG.NAME_MAP[self.rs],CMP.Func.EQ_0))
@@ -73,14 +81,3 @@ class If(IPseudoInstruction):
         else:
             rslt[-1]=Label(label_if,rslt[-1],1) # jump here if not-if
         return rslt
-
-def compile_instructions(inner_insts):
-    rslt_list=[]
-    for _2_inst in inner_insts:
-        if isinstance(_2_inst,IPseudoInstruction):
-            rslt_list.extend(_2_inst.compile())
-        elif isinstance(_2_inst,str):
-            rslt_list.extend(expr(_2_inst).compile())
-        else:
-            rslt_list.append(_2_inst)
-    return rslt_list

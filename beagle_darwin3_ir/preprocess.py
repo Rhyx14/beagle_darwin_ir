@@ -1,6 +1,5 @@
-from .if_else import compile_instructions
 from .label import Label,LabledInstructionBase
-def preprocess(nc_program:list, show=False):
+def preprocess(nc_program:list, show=False,):
     processed_inst=compile_instructions(nc_program)
 
     label_addr_dict={}
@@ -20,3 +19,18 @@ def preprocess(nc_program:list, show=False):
     if show:
         for _line,_inst in enumerate(rslt_inst): print(_line,': \t',str(_inst))
     return rslt_inst
+
+from .pseudo_inst import IPseudoInstruction,str_expr
+from .macro import IMacro
+def compile_instructions(inner_insts):
+    rslt_list=[]
+    for _inst in inner_insts:
+        if isinstance(_inst,IPseudoInstruction): # 展开伪指令
+            rslt_list.extend(_inst.compile())
+        elif isinstance(_inst,str):
+            rslt_list.extend(str_expr(_inst).compile())
+        elif isinstance(_inst,IMacro):
+            _inst.compile() # 执行宏指令
+        else:
+            rslt_list.append(_inst)
+    return rslt_list

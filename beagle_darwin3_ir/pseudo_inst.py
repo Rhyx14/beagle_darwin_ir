@@ -1,6 +1,7 @@
 from darwin3_deployment.ir import *
 from .label import LabledInstructionBase
 from .RREG import RREG
+from .tokenizer import tokenize
 class IPseudoInstruction():
     def compile(self) -> list:
         raise NotImplementedError
@@ -29,10 +30,10 @@ class jmp(LabledInstructionBase,IPseudoInstruction):
         if self.addr is not None: return [JC(0,0,self.addr)]
         else: return []
 
-class expr(IPseudoInstruction):
+class str_expr(IPseudoInstruction):
     def __init__(self,expr):
         super().__init__()
-        _ls=expr.split(' ')
+        _ls=tokenize(expr)
         _ls=[_s for _s in _ls if _s!='']
         self.rs=_ls[0]
         self.op=_ls[1]
