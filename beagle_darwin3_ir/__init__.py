@@ -27,3 +27,10 @@ __all__.extend([
     'dump_pop',
     'dump_output_neuron',
 ])
+
+from .monkey_patch.linear import connect_linear
+from .monkey_patch.one2one import connect_one2one
+__all__.extend([
+    'connect_linear',
+    'connect_one2one'
+])
