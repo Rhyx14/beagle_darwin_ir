@@ -44,10 +44,11 @@ def add_pop_linear_connection(weight: np.ndarray, pre_pop: PhysicalPopulation, p
     if weight_.ndim != 2:
         raise ValueError("The weight of full connection must be a two-dimensional array.")
     _post_neu_ids = list(range(post_pop.size))
+
     # is_neu_index_available = pre_pop._validate_neu_index(np.zeros((pre_pop.size, 1)))
     # connection_type, neu_index = (4, 0) if is_neu_index_available else (0, -1)
     connection_type, neu_index =  (0, -1)
-    
+
     in_pop_size,out_pop_size=weight.shape[1],weight.shape[0]
     
     assert in_pop_size <= pre_pop.size, f"Expect {in_pop_size} neurons in pre-neurongroup, got {out_pop_size} instead"
