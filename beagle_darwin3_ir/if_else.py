@@ -4,6 +4,7 @@ from .pseudo_inst import jc,jmp,jnc,str_expr
 from .label import Label
 from .RREG import RREG
 from .preprocess import compile_instructions
+from .tokenizer import tokenize
 class If(IPseudoInstruction):
     LABEL_ID=0
     @staticmethod
@@ -13,8 +14,7 @@ class If(IPseudoInstruction):
         return rslt
 
     def __init__(self,op:str,inline_insts:list=[],Else=[]) -> None:
-        _ls=op.split(' ')
-        _ls=[_s for _s in _ls if _s!='']
+        _ls=tokenize(op)
         self.rs=_ls[0]
         self.op=_ls[1]
         self.rt=_ls[2]
