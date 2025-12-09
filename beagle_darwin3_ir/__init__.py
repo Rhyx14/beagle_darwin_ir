@@ -22,10 +22,12 @@ __all__.extend([
 
 # monkey patch
 from .monkey_patch.dump_neurons import dump_input_neuron,dump_pop,dump_output_neuron
+from .monkey_patch.core_usage_info import CoreUsageInfo
 __all__.extend([
     'dump_input_neuron',
     'dump_pop',
     'dump_output_neuron',
+    'CoreUsageInfo'
 ])
 
 from .monkey_patch.linear import connect_linear

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional,Union,Sequence
 from darwin3_deployment.core_config import CoreConfig
 from loguru import logger
+from .core_usage_info import CoreUsageInfo
 # 添加16位支持
 CoreConfig._INFERENCE_PARAMETER_MAP = {f"PAR{i}": (8, i * 8) for i in range(6)} | {"PAR01":(16,0),"PAR23":(16,16),"PAR45":(16,32)}
 logger.info('Patching compiler done')
@@ -22,7 +23,7 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
         need_description: 是否需要输出描述信息
         need_show_usage: 是否需要输出节点使用率信息
     
-    Return: 编译错误列表
+    Return: 编译错误列表, 核心占用列表
     """
     delay_record = DelayRecord()
     if pop_info is None:
@@ -57,7 +58,9 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
     id_start = 0  # 输出json文件: id->coord+id, 子神经元索引相对于整体的偏移量
     pops_mapping = {}
 
-    error_list=[]
+    error_flag=False
+    pops_usages=[]
+
     for pop in pop_list:
         pop.remove_empty_axon()  # 重排神经元（有轴突、无轴突）
         conf[0] = (pop.size - 1) << 4  # 神经元个数寄存器[15:4] 神经元个数-1
@@ -107,14 +110,13 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
                 stack_point -= 4096
             if inf_param is None:
                 stack_point -= 4096
-            data_size = len(dendrite_bin)
-            link_size_minus_one = (data_size - 1) & 0xffff
+            dendrite_data_size = len(dendrite_bin)
+            link_size_minus_one = (dendrite_data_size - 1) & 0xffff
             conf[29] = (stack_point << 16) | link_size_minus_one
             if inf_state is not None:
-                data_size += pop.size
+                dendrite_data_size += pop.size
             elif inf_param is not None:
-                data_size += 4096 + pop.size
-            dendrite_memory_usage = data_size / pop.dendrite_memory_size * 100
+                dendrite_data_size += 4096 + pop.size
             for bin in dendrite_bin:
                 f.write(f"{bin:012x}\n")
 
@@ -156,13 +158,13 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
             if inf_state is not None:
                 if (_mem:=pop.inf_state_start_addr-pop.size) < len(dendrite_bin):
                     logger.error(f'Core{pop.coord}: IS area covers the dendrite memory!')
-                    error_list.append(((pop.coord,data_size,pop.dendrite_memory_size,len(axon_bin),pop.axon_memory_size)))
+                    error_flag=True
                 f.write(f"0 write_ram {x} {y} 0x1{_mem:04x} {x}-{y}-is.txt\n")
 
             if inf_param is not None:
                 if (_mem:=pop.inf_param_start_addr-pop.size) < len(dendrite_bin):
                     logger.error(f'Core{pop.coord}: IP area covers the dendrite memory!')
-                    error_list.append(((pop.coord,data_size,pop.dendrite_memory_size,len(axon_bin),pop.axon_memory_size)))
+                    error_flag=True
                 f.write(f"0 write_ram {x} {y} 0x1{_mem:04x} {x}-{y}-ip.txt\n")
 
             if learning_param is not None:
@@ -171,28 +173,31 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
             if vt is not None:
                 f.write(f"0 write_ram {x} {y} 0x02000 {x}-{y}-vt.txt\n")
         
-        # 接着下一个神经元的偏移量
+
+        # ========================= save the usage of 树突/轴突存储区 =========================
+        _core_usage_info=CoreUsageInfo(pop.coord,
+                                        dendrite_used=dendrite_data_size,
+                                        dendrite_size=pop.dendrite_memory_size,
+                                        axon_used=len(axon_bin),
+                                        axon_size=pop.axon_memory_size)
+        if _core_usage_info.is_error():
+            error_flag=True
+            logger.error(_core_usage_info)
+        if need_show_usage:
+            logger.info(_core_usage_info)
+        pops_usages.append(_core_usage_info)
+    
+        # =========================  接着下一个神经元的偏移量  =========================
         id_start += pop.size
 
-        # ========================= 打印树突/轴突存储区使用情况 =========================
-        is_error = (data_size > pop.dendrite_memory_size) or (len(axon_bin) > pop.axon_memory_size)
-        core_usage = (f"Core{pop.coord}: "
-                      f"Dendrite(size/depth) {data_size}/{pop.dendrite_memory_size}|{dendrite_memory_usage:.2f}%"
-                      f" --- Axon(size/depth) {len(axon_bin)}/{pop.axon_memory_size}|{axon_memory_usage:.2f}%")
-        if is_error:
-            logger.error(core_usage)
-            error_list.append((pop.coord,data_size,pop.dendrite_memory_size,len(axon_bin),pop.axon_memory_size))
-        else:
-            if need_show_usage or is_error:
-                logger.info(core_usage)
-    
+
     # ========================= 神经元群json文件 =========================
     file_name = pop_name + ".json"
     with open(file_name, "w") as f:
         json.dump(pops_mapping, f)
 
     os.chdir(original_dir)
-    return error_list
+    return error_flag,pops_usages
 
 
 @skip_if_flagged
