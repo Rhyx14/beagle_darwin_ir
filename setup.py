@@ -8,7 +8,7 @@ long_description = None
 setup(
       name='beagle_darwin3_ir', # 包名称
       packages=find_packages(exclude=['__pycache__']), # 需要处理的包目录
-      version='0.1.1.251205', # 版本
+      version='0.1.1.251216', # 版本
       classifiers=[
           'Development Status :: 3 - Alpha',
           'Programming Language :: Python', 'Intended Audience :: Developers',

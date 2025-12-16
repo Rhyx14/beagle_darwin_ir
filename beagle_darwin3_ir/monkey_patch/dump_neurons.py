@@ -5,6 +5,8 @@ from typing import Optional,Union,Sequence
 from darwin3_deployment.core_config import CoreConfig
 from loguru import logger
 from .core_usage_info import CoreUsageInfo
+from collections import defaultdict
+from io import StringIO
 # 添加16位支持
 CoreConfig._INFERENCE_PARAMETER_MAP = {f"PAR{i}": (8, i * 8) for i in range(6)} | {"PAR01":(16,0),"PAR23":(16,16),"PAR45":(16,32)}
 logger.info('Patching compiler done')
@@ -12,7 +14,7 @@ logger.info('Patching compiler done')
 from darwin3_deployment.codegen import skip_if_flagged,DelayRecord,PhysicalPopulation,PopsDataConfig
 @skip_if_flagged
 def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
-             pop_name: str, output_dir: Optional[str | Path] = None, need_description=True,
+             pop_name: str, output_dir:  Path = None, need_description=True,
              need_show_usage=True, pop_info=None) -> list[tuple]:
     """序列化PhysicalPopulation
 
@@ -28,9 +30,6 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
     delay_record = DelayRecord()
     if pop_info is None:
         pop_info = PopsDataConfig().get_pop_data(pop_name)
-    original_dir = os.getcwd()
-    if output_dir is not None:
-        os.chdir(output_dir)
 
     pop_list = [pop_list] if isinstance(pop_list, PhysicalPopulation) else pop_list
 
@@ -61,6 +60,13 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
     error_flag=False
     pops_usages=[]
 
+    string_io_dict=defaultdict(StringIO)
+    write_dir_flag=True
+    if output_dir is None:
+        output_dir=Path('')
+        write_dir_flag=False
+        logger.warning('Fake compile mode enabled, no compiled file will be saved!')
+
     for pop in pop_list:
         pop.remove_empty_axon()  # 重排神经元（有轴突、无轴突）
         conf[0] = (pop.size - 1) << 4  # 神经元个数寄存器[15:4] 神经元个数-1
@@ -80,98 +86,109 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
 
         # ========================= 描述文件 =========================
         if need_description:
-            desc_path = os.path.join('.', 'desc')
-            if not os.path.exists(desc_path):
-                os.makedirs(desc_path)
-            desc_file_path = os.path.join(desc_path, f"{x}-{y}-desc.md")
-            with open(desc_file_path, "w",encoding='utf-8') as f:
-                f.write("# Axon:\n")
-                axon_desc, axon_out_desc = pop.axon_description()
-                f.write(axon_desc + "\n\n")
-                f.write(axon_out_desc + "\n\n")
-                f.write("# Dendrite:\n")
-                dendrite_desc, neu_id_desc, weight_desc = pop.dendrite_description()
-                f.write(dendrite_desc + "\n\n")
-                f.write(neu_id_desc + "\n\n")
-                f.write(weight_desc + "\n\n")
+            desc_path = output_dir / 'desc'
+            if not desc_path.exists():
+                Path.mkdir(desc_path)
+
+            desc_file_path = desc_path / f"{x}-{y}-desc.md"
+            f=StringIO()
+            f.write("# Axon:\n")
+            axon_desc, axon_out_desc = pop.axon_description()
+            f.write(axon_desc + "\n\n")
+            f.write(axon_out_desc + "\n\n")
+            f.write("# Dendrite:\n")
+            dendrite_desc, neu_id_desc, weight_desc = pop.dendrite_description()
+            f.write(dendrite_desc + "\n\n")
+            f.write(neu_id_desc + "\n\n")
+            f.write(weight_desc + "\n\n")
+            string_io_dict[desc_file_path,f]
         
         # ========================= 轴突存储区 =========================
-        with open(f"{x}-{y}-ax.txt" , "w") as f:
-            axon_bin = pop.axon_serialize()
-            axon_memory_usage = len(axon_bin) / pop.axon_memory_size * 100
-            for axon_id, bin in sorted(axon_bin.items()):
-                f.write(f"{bin:07x}\n")
+        f= StringIO()
+        axon_bin = pop.axon_serialize()
+        for _axon_id, _bin in sorted(axon_bin.items()):
+            f.write(f"{_bin:07x}\n")
+        string_io_dict[output_dir / f"{x}-{y}-ax.txt"]=f
 
         # ========================= 树突存储区 =========================
-        with open(f"{x}-{y}-de.txt", "w") as f:
-            dendrite_bin = pop.dendrite_serialize()
-            stack_point = pop.dendrite_memory_size
-            if inf_state is None:
-                stack_point -= 4096
-            if inf_param is None:
-                stack_point -= 4096
-            dendrite_data_size = len(dendrite_bin)
-            link_size_minus_one = (dendrite_data_size - 1) & 0xffff
-            conf[29] = (stack_point << 16) | link_size_minus_one
-            if inf_state is not None:
-                dendrite_data_size += pop.size
-            elif inf_param is not None:
-                dendrite_data_size += 4096 + pop.size
-            for bin in dendrite_bin:
-                f.write(f"{bin:012x}\n")
+        f= StringIO()
+        dendrite_bin = pop.dendrite_serialize()
+        stack_point = pop.dendrite_memory_size
+        if inf_state is None:
+            stack_point -= 4096
+        if inf_param is None:
+            stack_point -= 4096
+        dendrite_data_size = len(dendrite_bin)
+        link_size_minus_one = (dendrite_data_size - 1) & 0xffff
+        conf[29] = (stack_point << 16) | link_size_minus_one
+        if inf_state is not None:
+            dendrite_data_size += pop.size
+        elif inf_param is not None:
+            dendrite_data_size += 4096 + pop.size
+        for _bin in dendrite_bin:
+            f.write(f"{_bin:012x}\n")
+        string_io_dict[output_dir / f"{x}-{y}-de.txt"]=f
 
         # ========================= 状态/参数 =========================
         if inf_state is not None:
-            with open(f"{x}-{y}-is.txt", "w") as f:
-                num_neurons = pop.size
-                for i in range(num_neurons): # 逆序写入
-                    f.write(f"{int(inf_state[id_start + num_neurons - 1 - i]):012x}\n")
+            f = StringIO()
+            num_neurons = pop.size
+            for i in range(num_neurons): # 逆序写入
+                f.write(f"{int(inf_state[id_start + num_neurons - 1 - i]):012x}\n")
+            string_io_dict[output_dir / f"{x}-{y}-is.txt"]=f
+            
         if inf_param is not None:
-            with open(f"{x}-{y}-ip.txt", "w") as f:
-                num_neurons = pop.size
-                for i in range(num_neurons): # 逆序写入
-                    f.write(f"{int(inf_param[id_start + num_neurons - 1 - i]):012x}\n")
+            f=StringIO()
+            num_neurons = pop.size
+            for i in range(num_neurons): # 逆序写入
+                f.write(f"{int(inf_param[id_start + num_neurons - 1 - i]):012x}\n")
+            string_io_dict[output_dir / f"{x}-{y}-ip.txt"]
+
         if learning_param is not None:
-            with open(f"{x}-{y}-lp.txt", "w") as f:
-                num_neurons = pop.size
-                for i in range(num_neurons):
-                    f.write(f"{int(learning_param[i]):012x}\n")
+            f=StringIO()
+            num_neurons = pop.size
+            for i in range(num_neurons):
+                f.write(f"{int(learning_param[i]):012x}\n")
+            string_io_dict[output_dir / f"{x}-{y}-lp.txt"]
+
         if vt is not None:
-            with open(f"{x}-{y}-vt.txt", "w") as f:
-                num_neurons = pop.size
-                for i in range(num_neurons):
-                    f.write(f"{int(vt[i]):04x}\n")
+            f=StringIO()
+            num_neurons = pop.size
+            for i in range(num_neurons):
+                f.write(f"{int(vt[i]):04x}\n")
+            string_io_dict[output_dir / f"{x}-{y}-vt.txt"]
 
         # ========================= 寄存器/配置 =========================
-        with open(f"{x}-{y}-config.dwnc", "w") as f:
-            f.write(f"# core ({x}, {y})\n")
-            for i in range(len(conf)):
-                f.write(f"0 write {x} {y} 0x{i:04x} 0x{conf[i]:08x}\n")
-            for i in range(len(regs)):
-                f.write(f"0 write {x} {y} 0x{i+0x800:04x} 0x{regs[i]:08x}\n")
-            for i in range(len(inst)):
-                f.write(f"0 write {x} {y} 0x{i+0x1000:04x} 0x{inst[i]:08x}\n")
-            
-            f.write(f"0 write_ram {x} {y} 0x08000 {x}-{y}-ax.txt\n")
-            f.write(f"0 write_ram {x} {y} 0x10000 {x}-{y}-de.txt\n")
-            
-            if inf_state is not None:
-                if (_mem:=pop.inf_state_start_addr-pop.size) < len(dendrite_bin):
-                    logger.error(f'Core{pop.coord}: IS area covers the dendrite memory!')
-                    error_flag=True
-                f.write(f"0 write_ram {x} {y} 0x1{_mem:04x} {x}-{y}-is.txt\n")
+        f=StringIO()
+        f.write(f"# core ({x}, {y})\n")
+        for i in range(len(conf)):
+            f.write(f"0 write {x} {y} 0x{i:04x} 0x{conf[i]:08x}\n")
+        for i in range(len(regs)):
+            f.write(f"0 write {x} {y} 0x{i+0x800:04x} 0x{regs[i]:08x}\n")
+        for i in range(len(inst)):
+            f.write(f"0 write {x} {y} 0x{i+0x1000:04x} 0x{inst[i]:08x}\n")
+        
+        f.write(f"0 write_ram {x} {y} 0x08000 {x}-{y}-ax.txt\n")
+        f.write(f"0 write_ram {x} {y} 0x10000 {x}-{y}-de.txt\n")
+        
+        if inf_state is not None:
+            if (_mem:=pop.inf_state_start_addr-pop.size) < len(dendrite_bin):
+                logger.error(f'Core{pop.coord}: IS area covers the dendrite memory!')
+                error_flag=True
+            f.write(f"0 write_ram {x} {y} 0x1{_mem:04x} {x}-{y}-is.txt\n")
 
-            if inf_param is not None:
-                if (_mem:=pop.inf_param_start_addr-pop.size) < len(dendrite_bin):
-                    logger.error(f'Core{pop.coord}: IP area covers the dendrite memory!')
-                    error_flag=True
-                f.write(f"0 write_ram {x} {y} 0x1{_mem:04x} {x}-{y}-ip.txt\n")
+        if inf_param is not None:
+            if (_mem:=pop.inf_param_start_addr-pop.size) < len(dendrite_bin):
+                logger.error(f'Core{pop.coord}: IP area covers the dendrite memory!')
+                error_flag=True
+            f.write(f"0 write_ram {x} {y} 0x1{_mem:04x} {x}-{y}-ip.txt\n")
 
-            if learning_param is not None:
-                f.write(f"0 write_ram {x} {y} 0x1{pop.learning_param_start_addr-pop.size:04x} {x}-{y}-lp.txt\n")
+        if learning_param is not None:
+            f.write(f"0 write_ram {x} {y} 0x1{pop.learning_param_start_addr-pop.size:04x} {x}-{y}-lp.txt\n")
 
-            if vt is not None:
-                f.write(f"0 write_ram {x} {y} 0x02000 {x}-{y}-vt.txt\n")
+        if vt is not None:
+            f.write(f"0 write_ram {x} {y} 0x02000 {x}-{y}-vt.txt\n")
+        string_io_dict[output_dir / f"{x}-{y}-config.dwnc"]=f
         
 
         # ========================= save the usage of 树突/轴突存储区 =========================
@@ -192,17 +209,19 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
 
 
     # ========================= 神经元群json文件 =========================
-    file_name = pop_name + ".json"
-    with open(file_name, "w") as f:
-        json.dump(pops_mapping, f)
+    if write_dir_flag:
+        with open(output_dir / (pop_name + ".json"), "w") as f:
+            json.dump(pops_mapping, f)
+        for _p,_sio in string_io_dict.items():
+            _p.write_text(_sio.getvalue(),encoding='utf-8')
+            _sio.close()
 
-    os.chdir(original_dir)
     return error_flag,pops_usages
 
 
 @skip_if_flagged
 def dump_input_neuron(input_pops: Union[PhysicalPopulation, Sequence[PhysicalPopulation]],
-                      output_dir: str = ".", file_name: str = "input_neuron.json"):
+                      output_dir: str | None = None, file_name: str = "input_neuron.json"):
     """将输入神经元信息导出为JSON文件
 
     Args:
@@ -210,6 +229,7 @@ def dump_input_neuron(input_pops: Union[PhysicalPopulation, Sequence[PhysicalPop
         output_dir: 输出文件的目录，默认为当前目录
         file_name: 输出文件的名称，默认为 "input_neuron.json"
     """
+    if output_dir is None: return # fake compile 模式下不用 dump input
     if isinstance(input_pops, PhysicalPopulation):
         input_pops = [input_pops]
 
@@ -239,7 +259,10 @@ def dump_input_neuron(input_pops: Union[PhysicalPopulation, Sequence[PhysicalPop
 
 @skip_if_flagged
 def dump_output_neuron(output_pops: Union[PhysicalPopulation, Sequence[PhysicalPopulation]], pop_name: str,
-                       output_dir: str = ".", file_name: str = "output_neuron"):
+                       output_dir: str | None = None, file_name: str = "output_neuron"):
+    
+    if output_dir is None: return # fake compile模式下不用dump output neuron
+
     if isinstance(output_pops, PhysicalPopulation):
         output_pops = [output_pops]
 
