@@ -101,7 +101,7 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
             f.write(dendrite_desc + "\n\n")
             f.write(neu_id_desc + "\n\n")
             f.write(weight_desc + "\n\n")
-            string_io_dict[desc_file_path,f]
+            string_io_dict[desc_file_path]=f
         
         # ========================= 轴突存储区 =========================
         f= StringIO()
@@ -142,21 +142,21 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
             num_neurons = pop.size
             for i in range(num_neurons): # 逆序写入
                 f.write(f"{int(inf_param[id_start + num_neurons - 1 - i]):012x}\n")
-            string_io_dict[output_dir / f"{x}-{y}-ip.txt"]
+            string_io_dict[output_dir / f"{x}-{y}-ip.txt"]=f
 
         if learning_param is not None:
             f=StringIO()
             num_neurons = pop.size
             for i in range(num_neurons):
                 f.write(f"{int(learning_param[i]):012x}\n")
-            string_io_dict[output_dir / f"{x}-{y}-lp.txt"]
+            string_io_dict[output_dir / f"{x}-{y}-lp.txt"]=f
 
         if vt is not None:
             f=StringIO()
             num_neurons = pop.size
             for i in range(num_neurons):
                 f.write(f"{int(vt[i]):04x}\n")
-            string_io_dict[output_dir / f"{x}-{y}-vt.txt"]
+            string_io_dict[output_dir / f"{x}-{y}-vt.txt"]=f
 
         # ========================= 寄存器/配置 =========================
         f=StringIO()
