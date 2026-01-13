@@ -1,10 +1,10 @@
-from .label import Label
-from .RREG import RREG
-from .pseudo_inst import jc,jmp,jnc,str_expr
-from .if_else import If
+from .pseduo_inst.LabledInstruction import Label
+from .pseduo_inst.RREG import RREG
+from .pseduo_inst import jc,jmp,jnc,str_expr
+from .pseduo_inst import If
 from .preprocess import preprocess
 from .LSLS_params import LSLS_Param
-from .macro import Let
+from .pseduo_inst.macro import Let
 __all__=[
     'Label',
     'RREG',

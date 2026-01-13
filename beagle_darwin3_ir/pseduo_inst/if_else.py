@@ -1,10 +1,10 @@
-from .pseudo_inst import IPseudoInstruction
-from darwin3_deployment.ir import DInst,CMP
-from .pseudo_inst import jc,jmp,jnc,str_expr
-from .label import Label
+from .str_inst import IPseudoInstruction
+from darwin3_deployment.ir import CMP
+from .LabledInstruction import Label
 from .RREG import RREG
-from .preprocess import compile_instructions
+from .compile_instructions import compile_instructions
 from .tokenizer import tokenize
+from .jmp_inst.jmp_inst import jc,jnc,jmp
 class If(IPseudoInstruction):
     LABEL_ID=0
     @staticmethod

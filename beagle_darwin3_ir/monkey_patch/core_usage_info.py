@@ -10,7 +10,15 @@ class CoreUsageInfo:
         self.axon_size = axon_size
 
     def is_error(self) -> bool:
-        return (self.dendrite_used > self.dendrite_size) or (self.axon_used > self.axon_size)
+        if self.is_dendrite_overflow() or self.is_axon_overflow():
+            return True
+        return False
+    
+    def is_dendrite_overflow(self) -> bool:
+        return self.dendrite_used > self.dendrite_size
+    
+    def is_axon_overflow(self) -> bool:
+        return self.axon_used > self.axon_size
     
     def __str__(self) -> str:
         dendrite_usage_percent = self.dendrite_used / self.dendrite_size * 100

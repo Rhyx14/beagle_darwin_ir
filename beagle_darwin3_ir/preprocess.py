@@ -1,7 +1,10 @@
-from .label import Label,LabledInstructionBase
+from .pseduo_inst.LabledInstruction import Label,LabledInstructionBase
+from .pseduo_inst.compile_instructions import compile_instructions
 def preprocess(nc_program:list, show=False,):
+    # 展开指令
     processed_inst=compile_instructions(nc_program)
 
+    # 处理标号
     label_addr_dict={}
     rslt_inst=[]
     for _pc,_inst in enumerate(processed_inst):
@@ -19,18 +22,3 @@ def preprocess(nc_program:list, show=False,):
     if show:
         for _line,_inst in enumerate(rslt_inst): print(_line,': \t',str(_inst))
     return rslt_inst
-
-from .pseudo_inst import IPseudoInstruction,str_expr
-from .macro import IMacro
-def compile_instructions(inner_insts):
-    rslt_list=[]
-    for _inst in inner_insts:
-        if isinstance(_inst,IPseudoInstruction): # 展开伪指令
-            rslt_list.extend(_inst.compile())
-        elif isinstance(_inst,str):
-            rslt_list.extend(str_expr(_inst).compile())
-        elif isinstance(_inst,IMacro):
-            _inst.compile() # 执行宏指令
-        else:
-            rslt_list.append(_inst)
-    return rslt_list
