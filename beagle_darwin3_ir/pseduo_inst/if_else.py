@@ -1,4 +1,4 @@
-from .str_inst import IPseudoInstruction
+from .str_expr import IPseudoInstruction
 from darwin3_deployment.ir import CMP
 from .LabledInstruction import Label
 from .RREG import RREG

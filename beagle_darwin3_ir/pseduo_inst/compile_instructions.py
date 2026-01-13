@@ -1,4 +1,5 @@
-from pseduo_inst import IPseudoInstruction,str_expr
+from .IPseudoInstruction import IPseudoInstruction
+from .str_expr import str_expr
 from .macro import IMacro
 def compile_instructions(inner_insts):
     rslt_list=[]
