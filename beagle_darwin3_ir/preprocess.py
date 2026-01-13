@@ -1,6 +1,11 @@
 from .pseduo_inst.LabledInstruction import Label,LabledInstructionBase
 from .pseduo_inst.compile_instructions import compile_instructions
+from .pseduo_inst.RREG import RREG
 def preprocess(nc_program:list, show=False,):
+    # reset state each turn
+    RREG.NAME_MAP.clear()
+    RREG.NAME_MAP.update(RREG.RESERVE_NAME_MAP)
+
     # 展开指令
     processed_inst=compile_instructions(nc_program)
 

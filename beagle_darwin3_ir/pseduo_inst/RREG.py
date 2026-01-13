@@ -36,7 +36,7 @@ class RREG():
     R14=14
     R15=15
 
-    NAME_MAP={
+    RESERVE_NAME_MAP={
         # 15 register
         'r0':0, 'r1':1,'r2':2, 'r3':3, 'r4':4, 'r5':5,'r6':6,'r7':7,'r8':8,'r9':9,'r10':10,'r11':11,'r12':12,'r13':13,'r14':14,'r15':15,
         # register content
@@ -45,3 +45,6 @@ class RREG():
         # ip area
         'PAR01':13,'PAR23':14,'PAR45':15,'PAR0':13,'PAR2':14,'PAR4':15
     }
+    
+    NAME_MAP={}
+    # local temporary variable map
