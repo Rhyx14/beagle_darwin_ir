@@ -11,11 +11,11 @@ from io import StringIO
 CoreConfig._INFERENCE_PARAMETER_MAP = {f"PAR{i}": (8, i * 8) for i in range(6)} | {"PAR01":(16,0),"PAR23":(16,16),"PAR45":(16,32)}
 logger.info('Patching compiler done')
  
-from darwin3_deployment.codegen import skip_if_flagged,DelayRecord,PhysicalPopulation,PopsDataConfig
+from darwin3_deployment.codegen import skip_if_flagged,DelayRecord,PhysicalPopulation
 @skip_if_flagged
 def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
-             pop_name: str, output_dir:  Path = None, need_description=True,
-             need_show_usage=True, pop_info=None) -> list[tuple]:
+             pop_name: str, pop_info: dict, output_dir:  Path = None, need_description=True,
+             need_show_usage=True) -> list[tuple]:
     """序列化PhysicalPopulation
 
     Args:
@@ -28,9 +28,6 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
     Return: 编译错误列表, 核心占用列表
     """
     delay_record = DelayRecord()
-    if pop_info is None:
-        pop_info = PopsDataConfig().get_pop_data(pop_name)
-
     pop_list = [pop_list] if isinstance(pop_list, PhysicalPopulation) else pop_list
 
     core_config = pop_info["core_config"]
@@ -65,7 +62,6 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
     if output_dir is None:
         output_dir=Path('')
         write_dir_flag=False
-        logger.warning('Fake compile mode enabled, no compiled file will be saved!')
 
     for pop in pop_list:
         pop.remove_empty_axon()  # 重排神经元（有轴突、无轴突）
@@ -173,13 +169,13 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
         
         if inf_state is not None:
             if (_mem:=pop.inf_state_start_addr-pop.size) < len(dendrite_bin):
-                logger.error(f'Core{pop.coord}: IS area covers the dendrite memory!')
+                if need_show_usage: logger.error(f'Core{pop.coord}: IS area covers the dendrite memory!')
                 error_flag=True
             f.write(f"0 write_ram {x} {y} 0x1{_mem:04x} {x}-{y}-is.txt\n")
 
         if inf_param is not None:
             if (_mem:=pop.inf_param_start_addr-pop.size) < len(dendrite_bin):
-                logger.error(f'Core{pop.coord}: IP area covers the dendrite memory!')
+                if need_show_usage: logger.error(f'Core{pop.coord}: IP area covers the dendrite memory!')
                 error_flag=True
             f.write(f"0 write_ram {x} {y} 0x1{_mem:04x} {x}-{y}-ip.txt\n")
 
@@ -199,7 +195,8 @@ def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
                                         axon_size=pop.axon_memory_size)
         if _core_usage_info.is_error():
             error_flag=True
-            logger.error(_core_usage_info)
+            if need_show_usage:
+                logger.error(_core_usage_info)
         if need_show_usage:
             logger.info(_core_usage_info)
         pops_usages.append(_core_usage_info)
