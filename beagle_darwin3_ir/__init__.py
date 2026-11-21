@@ -38,3 +38,8 @@ __all__.extend([
     'connect_linear',
     'connect_one2one'
 ])
+
+from .monkey_patch.conv_connection import add_conv_connection
+__all__.extend([
+    'add_conv_connection'
+])
