@@ -2,16 +2,12 @@ import os,json
 import numpy as np
 from pathlib import Path
 from typing import Optional,Union,Sequence
-from darwin3_deployment.core_config import CoreConfig
 from loguru import logger
-from .core_usage_info import CoreUsageInfo
+from ..core_usage_info import CoreUsageInfo
 from collections import defaultdict
 from io import StringIO
-# 添加16位支持
-CoreConfig._INFERENCE_PARAMETER_MAP = {f"PAR{i}": (8, i * 8) for i in range(6)} | {"PAR01":(16,0),"PAR23":(16,16),"PAR45":(16,32)}
-logger.info('Patch inference parameter map.')
- 
 from darwin3_deployment.codegen import skip_if_flagged,DelayRecord,PhysicalPopulation
+
 @skip_if_flagged
 def dump_pop(pop_list: Union[Sequence[PhysicalPopulation], PhysicalPopulation],
              pop_name: str, pop_info: dict, output_dir:  Path = None, need_description=True,

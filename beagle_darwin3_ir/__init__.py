@@ -21,7 +21,7 @@ __all__.extend([
 ])
 
 # monkey patch
-from .monkey_patch.dump_neurons import dump_input_neuron,dump_pop,dump_output_neuron
+from .monkey_patch.dump.dump_neurons import dump_input_neuron,dump_pop,dump_output_neuron
 from .monkey_patch.core_usage_info import CoreUsageInfo
 from .monkey_patch.clear_compiler_state import clear_compiler_state
 __all__.extend([
@@ -32,14 +32,9 @@ __all__.extend([
     'clear_compiler_state'
 ])
 
-from .monkey_patch.linear import connect_linear
-from .monkey_patch.one2one import connect_one2one
+from .monkey_patch import add_conv_connection,connect_one2one,connect_linear
 __all__.extend([
+    'add_conv_connection',
     'connect_linear',
     'connect_one2one'
-])
-
-from .monkey_patch.conv_connection import add_conv_connection
-__all__.extend([
-    'add_conv_connection'
 ])
