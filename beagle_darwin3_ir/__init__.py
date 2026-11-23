@@ -21,7 +21,7 @@ __all__.extend([
 ])
 
 # monkey patch
-from .monkey_patch.dump.dump_neurons import dump_input_neuron,dump_pop,dump_output_neuron
+from .monkey_patch import dump_input_neuron,dump_pop,dump_output_neuron
 from .monkey_patch.core_usage_info import CoreUsageInfo
 from .monkey_patch.clear_compiler_state import clear_compiler_state
 __all__.extend([

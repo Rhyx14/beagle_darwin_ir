@@ -7,3 +7,4 @@ dist/
 test*
 archive/
 .ipynb_checkpoints/
+darwin3_doc/

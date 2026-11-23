@@ -14,3 +14,6 @@ __all__=[
 ]
 
 from .dump.axon_serialize import axon_serialize
+from .dump.dump_input import dump_input_neuron
+from .dump.dump_neurons import dump_pop
+from .dump.dump_output import dump_output_neuron
