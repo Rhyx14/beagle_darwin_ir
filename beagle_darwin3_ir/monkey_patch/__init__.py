@@ -6,11 +6,13 @@ logger.info('Patch inference parameter map.')
 
 from .connection.fast_conv import add_conv_connection 
 from .connection.linear import connect_linear
-from .connection.one2one import connect_one2one
+from .connection.uneven_one2one import connect_one2one
+from .connection.shared_one2one import connect_shared_one2one
 __all__=[
     'add_conv_connection',
     'connect_linear',
-    'connect_one2one'
+    'connect_one2one',
+    'connect_shared_one2one'
 ]
 
 from .dump.axon_serialize import axon_serialize

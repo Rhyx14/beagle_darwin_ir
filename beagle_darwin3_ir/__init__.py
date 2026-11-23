@@ -32,9 +32,10 @@ __all__.extend([
     'clear_compiler_state'
 ])
 
-from .monkey_patch import add_conv_connection,connect_one2one,connect_linear
+from .monkey_patch import add_conv_connection,connect_one2one,connect_linear,connect_shared_one2one
 __all__.extend([
     'add_conv_connection',
     'connect_linear',
-    'connect_one2one'
+    'connect_one2one',
+    'connect_shared_one2one'
 ])
