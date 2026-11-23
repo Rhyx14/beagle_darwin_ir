@@ -1,5 +1,7 @@
 from darwin3_deployment.codegen import check_distance,Sequence,_validate_neuron_ids,PhysicalPopulation,_get_pair
 import numpy as np
+from collections import namedtuple
+from functools import lru_cache
 from typing import List,Any,Union
 
 def _write_conv_dendrites(
@@ -84,6 +86,121 @@ def _write_conv_dendrites(
             ax.append(_out_id)
 
 
+# ===================== 权重无关几何缓存 =====================
+# add_conv_connection 中与权重数值无关的部分（网格、有效抽头、稳定排序、按前
+# 神经元分组、权重下标）只取决于 (前/后形状, 核尺寸, stride, padding, dilation)。
+# ResNet 的 3600 次调用只有 13 种签名，缓存后避免重复构造。
+_ConvGeometry = namedtuple(
+    "_ConvGeometry",
+    [
+        "pre_to_post_ids",  # object[spatial_size*in_channels]：后神经元 id（与 in_ch 无关）
+        "weight_indices",   # object[spatial_size*in_channels]：kernel.ravel() 下标
+        "pattern_keys",     # object[spatial_size]：边界模式 bytes（padding-only 为 None）
+        "base_ids",         # int64[spatial_size]：每个前神经元的绝对基准 id
+        "spatial_size",     # int：单通道空间大小 in_h * in_w
+        "in_channels",      # int：输入通道数
+    ],
+)
+
+
+@lru_cache(maxsize=30)
+def _get_conv_geometry(pre_shape, post_shape, kernel_h, kernel_w, stride, padding, dilation):
+    """构造与权重数值无关的卷积连接几何，结果只读，调用方不得原地修改。
+
+    所有入参必须是可哈希的整数元组（stride/padding/dilation 为 (h, w) 二元组），
+    由 add_conv_connection 归一化后传入，以便 lru_cache 得到稳定键。
+
+    重量（kernel 数值）不在此处缓存：weight_indices 只是下标，每次调用再用
+    当次的 kernel.ravel() 取值。
+    """
+    in_channels, in_h, in_w = (int(v) for v in pre_shape)
+    out_channels, out_h, out_w = (int(v) for v in post_shape)
+    kernel_h, kernel_w = int(kernel_h), int(kernel_w)
+    sh, sw = (int(v) for v in stride)
+    ph, pw = (int(v) for v in padding)
+    dh, dw = (int(v) for v in dilation)
+
+    # base 网格：每个输出位置对应的输入侧采样锚点（kernel 元素 (0,0) 的落点，可为负）
+    base_h_grid, base_w_grid = np.meshgrid(
+        np.arange(-ph, sh * (out_h - 1) - ph + 1, sh),
+        np.arange(-pw, sw * (out_w - 1) - pw + 1, sw),
+        indexing="ij",
+    )
+    # 卷积核内部的相对偏移
+    kernel_h_grid, kernel_w_grid = np.meshgrid(np.arange(kernel_h), np.arange(kernel_w), indexing="ij")
+
+    # 广播到 (out_h, out_w, kernel_h, kernel_w)
+    base_h_grid = np.broadcast_to(base_h_grid[:, :, None, None], base_h_grid.shape + kernel_h_grid.shape)
+    base_w_grid = np.broadcast_to(base_w_grid[:, :, None, None], base_w_grid.shape + kernel_h_grid.shape)
+
+    # 每个 (输出位置, 核元素) 组合对应的输入特征图坐标
+    in_h_grid = base_h_grid + kernel_h_grid[None, None, :, :] * dh
+    in_w_grid = base_w_grid + kernel_w_grid[None, None, :, :] * dw
+
+    # padding 越界的抽头直接剔除（等价 zero-padding）
+    valid_mask = (in_h_grid >= 0) & (in_h_grid < in_h) & (in_w_grid >= 0) & (in_w_grid < in_w)
+    valid_positions = np.argwhere(valid_mask)
+    out_h_idx, out_w_idx, kh_idx, kw_idx = (
+        valid_positions[:, 0], valid_positions[:, 1], valid_positions[:, 2], valid_positions[:, 3]
+    )
+
+    # 高级索引：四个索引数组逐行配对，结果长度为有效抽头数。
+    # base_*_pos 仍在输入坐标系（锚点，可为负）；in_*_pos 保证落在 [0, in_h/in_w)。
+    base_h_pos = base_h_grid[out_h_idx, out_w_idx, kh_idx, kw_idx]
+    base_w_pos = base_w_grid[out_h_idx, out_w_idx, kh_idx, kw_idx]
+    in_h_pos = in_h_grid[out_h_idx, out_w_idx, kh_idx, kw_idx]
+    in_w_pos = in_w_grid[out_h_idx, out_w_idx, kh_idx, kw_idx]
+
+    # 单通道内的展平坐标
+    pre_spatial_id = in_h_pos * in_w + in_w_pos
+    # 输出侧：通过 (base + padding) // stride 反算输出索引
+    post_spatial_id = (base_h_pos + ph) // sh * out_w + (base_w_pos + pw) // sw
+    # 卷积核平面内的展平偏移（不含通道维）
+    kernel_pos = kh_idx * kernel_w + kw_idx
+
+    # 按前神经元分组：稳定排序保证组内顺序与 np.argwhere 遍历顺序一致
+    order = np.argsort(pre_spatial_id, kind="stable")
+    sorted_pre = pre_spatial_id[order]
+    sorted_post = post_spatial_id[order]
+    sorted_kernel_pos = kernel_pos[order]
+    spatial_size = in_h * in_w
+    offsets = np.searchsorted(sorted_pre, np.arange(spatial_size + 1))
+
+    # 通道维度的展平步长
+    out_channel_stride = np.arange(out_channels) * out_h * out_w
+    kernel_out_ch_stride = np.arange(out_channels) * in_channels * kernel_h * kernel_w
+    kernel_in_ch_stride = kernel_h * kernel_w
+
+    pre_to_post_ids = np.empty(spatial_size * in_channels, dtype=object)
+    weight_indices = np.empty(spatial_size * in_channels, dtype=object)
+    pattern_keys = np.empty(spatial_size, dtype=object)   # 每个前神经元的边界模式
+    base_ids = np.empty(spatial_size, dtype=np.int64)     # 每个前神经元的绝对基准 id
+
+    for pre_spatial in range(spatial_size):
+        start, end = offsets[pre_spatial], offsets[pre_spatial + 1]
+        if start == end:
+            continue
+
+        post_seg = sorted_post[start:end]
+        kpos_seg = sorted_kernel_pos[start:end]
+
+        # 同一个空间坐标复制到所有输出通道；in_ch 维度只影响权重下标的通道偏移
+        target_ids = (post_seg[:, None] + out_channel_stride).T.ravel()
+        kernel_positions = (kpos_seg[:, None] + kernel_out_ch_stride).T.ravel()
+
+        pattern_keys[pre_spatial] = kpos_seg.tobytes()
+        base_ids[pre_spatial] = target_ids[0]
+
+        for in_ch in range(in_channels):
+            neuron_index = pre_spatial + in_ch * spatial_size
+            pre_to_post_ids[neuron_index] = target_ids
+            weight_indices[neuron_index] = kernel_positions + in_ch * kernel_in_ch_stride
+
+    return _ConvGeometry(
+        pre_to_post_ids, weight_indices, pattern_keys, base_ids, spatial_size, in_channels,
+    )
+
+
 @check_distance
 def add_conv_connection(
     weight: np.ndarray,
@@ -113,109 +230,30 @@ def add_conv_connection(
         raise ValueError("The shape of the postsynaptic population must be a "
                          "three-dimensional array (channels, height, width).")
 
-    stride = np.array(_get_pair(stride))
-    padding = np.array(_get_pair(padding))
-    dilation = np.array(_get_pair(dilation))
+    # 归一化签名：(前形状, 后形状, 核高, 核宽, stride, padding, dilation)。
+    # 只有这些值影响与权重无关的几何，因此可直接作为缓存键。
+    stride_t = tuple(int(v) for v in _get_pair(stride))
+    padding_t = tuple(int(v) for v in _get_pair(padding))
+    dilation_t = tuple(int(v) for v in _get_pair(dilation))
+    pre_shape_t = tuple(int(v) for v in pre_pop.shape)
+    post_shape_t = tuple(int(v) for v in post_pop.shape)
+    kernel_h, kernel_w = (int(v) for v in kernel.shape[-2:])
 
-    kernel_h, kernel_w = kernel.shape[-2:]
-    in_channels, in_h, in_w = pre_pop.shape
-    out_channels, out_h, out_w = post_pop.shape
-
-    # ===================== 坐标命名约定 =====================
-    #   out_*        输出（后）侧索引，范围 [0, out_h) / [0, out_w)
-    #   base_*       输入（前）侧的采样锚点 = out_* * stride - padding，
-    #                即核元素 (kh=0, kw=0) 的落点；padding 区会为负数，
-    #                所以它只是"锚点"，不保证是合法输入坐标
-    #   in_*         输入（前）侧坐标 = base + 核偏移 * dilation，
-    #                已保证落在 [0, in_h) / [0, in_w)
-    #   kernel_*     卷积核内部坐标
-    #   *_spatial_id 单通道内的展平索引（不含通道维）
-    # ========================================================
-
-    # base 网格：每个输出位置 (out_h_idx, out_w_idx) 对应的输入侧采样锚点
-    base_h_grid, base_w_grid = np.meshgrid(
-        np.arange(-padding[0], stride[0] * (out_h - 1) - padding[0] + 1, stride[0]),
-        np.arange(-padding[1], stride[1] * (out_w - 1) - padding[1] + 1, stride[1]),
-        indexing="ij",
-    )
-    # 卷积核内部的相对偏移
-    kernel_h_grid, kernel_w_grid = np.meshgrid(np.arange(kernel_h), np.arange(kernel_w), indexing="ij")
-
-    # 广播到 (out_h, out_w, kernel_h, kernel_w)
-    base_h_grid = np.broadcast_to(base_h_grid[:, :, None, None], base_h_grid.shape + kernel_h_grid.shape)
-    base_w_grid = np.broadcast_to(base_w_grid[:, :, None, None], base_w_grid.shape + kernel_w_grid.shape)
-
-    # 每个 (输出位置, 核元素) 组合对应的输入特征图坐标
-    in_h_grid = base_h_grid + kernel_h_grid[None, None, :, :] * dilation[0]
-    in_w_grid = base_w_grid + kernel_w_grid[None, None, :, :] * dilation[1]
-
-    # padding 越界的抽头直接剔除（等价 zero-padding）
-    valid_mask = (in_h_grid >= 0) & (in_h_grid < in_h) & (in_w_grid >= 0) & (in_w_grid < in_w)
-    valid_positions = np.argwhere(valid_mask)
-    out_h_idx, out_w_idx, kh_idx, kw_idx = (
-        valid_positions[:, 0], valid_positions[:, 1], valid_positions[:, 2], valid_positions[:, 3]
+    geom = _get_conv_geometry(
+        pre_shape_t, post_shape_t, kernel_h, kernel_w,
+        stride_t, padding_t, dilation_t,
     )
 
-    # 高级索引：四个索引数组逐行配对，结果长度为有效抽头数。
-    # base_*_pos 仍在输入坐标系（锚点，可为负）；
-    # in_*_pos 才是加上核偏移后、保证落在 [0, in_h/in_w) 的输入坐标。
-    base_h_pos = base_h_grid[out_h_idx, out_w_idx, kh_idx, kw_idx]
-    base_w_pos = base_w_grid[out_h_idx, out_w_idx, kh_idx, kw_idx]
-    in_h_pos = in_h_grid[out_h_idx, out_w_idx, kh_idx, kw_idx]
-    in_w_pos = in_w_grid[out_h_idx, out_w_idx, kh_idx, kw_idx]
+    # 外层浅拷贝：缓存对象保持只读，返回给调用方的数组可安全持有
+    pre_to_post_ids = geom.pre_to_post_ids.copy()
 
-    # 单通道内的展平坐标
-    # 输入（前）侧：in_h_pos * in_w + in_w_pos
-    pre_spatial_id = in_h_pos * in_w + in_w_pos
-    # 输出（后）侧：等价于 out_h_idx * out_w + out_w_idx；
-    # 这里通过 (base + padding) // stride 反算，把锚点还原成输出索引
-    post_spatial_id = (base_h_pos + padding[0]) // stride[0] * out_w + (base_w_pos + padding[1]) // stride[1]
-    # 卷积核平面内的展平偏移（不含通道维，完整权重下标见下方 kernel_*_stride）
-    kernel_pos = kh_idx * kernel_w + kw_idx
-
-    # 按前神经元分组：稳定排序保证组内顺序与 np.argwhere 的遍历顺序完全一致，
-    # 因此重建出的 neuron_id / weight 序列与原逐边 append 版本逐元素相同，
-    # _register 的去重结果也不会改变。
-    order = np.argsort(pre_spatial_id, kind="stable")
-    sorted_pre = pre_spatial_id[order]
-    sorted_post = post_spatial_id[order]
-    sorted_kernel_pos = kernel_pos[order]
-    # offsets[p]:offsets[p+1] 即前神经元 p 的抽头区间；
-    # 空区间（padding-only 的神经元）会在下面被自动跳过。
-    spatial_size = in_h * in_w
-    offsets = np.searchsorted(sorted_pre, np.arange(spatial_size + 1))
-
-    # 通道维度的展平步长
-    out_channel_stride = np.arange(out_channels) * out_h * out_w                 # 输出通道在 post 展平索引中的步长
-    kernel_out_ch_stride = np.arange(out_channels) * in_channels * kernel_h * kernel_w  # 输出通道在 kernel 展平索引中的步长
-    kernel_in_ch_stride = kernel_h * kernel_w                                    # 输入通道在 kernel 展平索引中的步长
-
-    pre_to_post_ids = np.empty(spatial_size * in_channels, dtype=object)
-    pre_to_weights = np.empty(spatial_size * in_channels, dtype=object)
-    pattern_keys = np.empty(spatial_size, dtype=object)   # 每个前神经元的边界模式
-    base_ids = np.empty(spatial_size, dtype=np.int64)     # 每个前神经元的绝对基准 id
-
+    # 权重每次调用都不同：仅按缓存的下标从当次 kernel 取值
     kernel_flat = kernel.ravel()
-    for pre_spatial in range(spatial_size):
-        start, end = offsets[pre_spatial], offsets[pre_spatial + 1]
-        if start == end:
+    pre_to_weights = np.empty(geom.spatial_size * geom.in_channels, dtype=object)
+    for neuron_index, weight_index in enumerate(geom.weight_indices):
+        if weight_index is None:
             continue
-
-        post_seg = sorted_post[start:end]
-        kpos_seg = sorted_kernel_pos[start:end]
-
-        # 与原先 tap_array[:, :1] / tap_array[:, 1:] 等价，但无需物化 (n, 2) 数组
-        # 同一个空间坐标复制到所有输出通道
-        target_ids = (post_seg[:, None] + out_channel_stride).T.ravel()
-        kernel_positions = (kpos_seg[:, None] + kernel_out_ch_stride).T.ravel()
-
-        pattern_keys[pre_spatial] = kpos_seg.tobytes()
-        base_ids[pre_spatial] = target_ids[0]
-
-        for in_ch in range(in_channels):
-            neuron_index = pre_spatial + in_ch * spatial_size
-            pre_to_post_ids[neuron_index] = target_ids
-            pre_to_weights[neuron_index] = kernel_flat[in_ch * kernel_in_ch_stride + kernel_positions]
+        pre_to_weights[neuron_index] = kernel_flat[weight_index]
 
     # 与原始实现相同的全局 type 决策：所有前神经元都与自己的历史基准一致才用相对寻址
     is_rel = pre_pop._validate_neu_index(pre_to_post_ids)
@@ -223,8 +261,8 @@ def add_conv_connection(
     _write_conv_dendrites(
         pre_pop, post_pop,
         pre_to_post_ids, pre_to_weights,
-        pattern_keys, base_ids,
-        spatial_size, in_channels, is_rel,
+        geom.pattern_keys, geom.base_ids,
+        geom.spatial_size, geom.in_channels, is_rel,
     )
     return pre_to_post_ids, pre_to_weights
 
