@@ -8,11 +8,15 @@ from .connection.fast_conv import add_conv_connection
 from .connection.linear import connect_linear
 from .connection.uneven_one2one import connect_one2one
 from .connection.shared_one2one import connect_shared_one2one
+from .connection.conv_variants import add_group_conv, add_transposed_conv, get_nc_channel
 __all__=[
     'add_conv_connection',
     'connect_linear',
     'connect_one2one',
-    'connect_shared_one2one'
+    'connect_shared_one2one',
+    'add_group_conv',
+    'add_transposed_conv',
+    'get_nc_channel'
 ]
 
 from .dump.axon_serialize import axon_serialize

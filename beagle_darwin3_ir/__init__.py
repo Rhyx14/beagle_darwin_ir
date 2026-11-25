@@ -33,9 +33,13 @@ __all__.extend([
 ])
 
 from .monkey_patch import add_conv_connection,connect_one2one,connect_linear,connect_shared_one2one
+from .monkey_patch import add_group_conv,add_transposed_conv,get_nc_channel
 __all__.extend([
     'add_conv_connection',
     'connect_linear',
     'connect_one2one',
-    'connect_shared_one2one'
+    'connect_shared_one2one',
+    'add_group_conv',
+    'add_transposed_conv',
+    'get_nc_channel'
 ])
